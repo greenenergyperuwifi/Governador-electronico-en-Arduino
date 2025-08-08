@@ -2,8 +2,10 @@
 
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <OLED_I2C.h>  // Asegúrate de tener esta librería instalada
+#include <U8x8lib.h>
 #include <Wire.h>
+
+U8X8_SSD1306_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
 
 // === DEFINICIÓN DE PINES ===
 #define TML1 9
@@ -27,9 +29,7 @@ const int xInicio = 0;
 const int xFin = 126;
 const int anchoUtil = 127;
 
-// === OBJETO OLED ===
-OLED myOLED(SDA, SCL,12);
-extern uint8_t SmallFont[];
+
 // === VARIABLES GLOBALES ===
 int varPINIDL = 0;
 int pwm = 0;
@@ -80,11 +80,12 @@ void  inicializarTextoOLED();
 
 // === SETUP ===
 void setup() {
-    Wire.begin();
-  Wire.setClock(400000);  // Usa modo rápido I2C
+
+    u8x8.begin();
+  //u8x8.setFont(u8x8_font_profont29_2x3_f);
+  u8x8.setFont(u8x8_font_chroma48medium8_r);  // ejemplo
+
   // tu setup OLED aquí.
-  myOLED.begin();
-  myOLED.setFont(SmallFont);
   pinMode(TML1, OUTPUT);
   pinMode(TML2, OUTPUT);
 
@@ -101,18 +102,18 @@ void setup() {
   leerEeprom();
   pwm = 0;
   setpoint = 800;
-  inicializarTextoOLED();
 }
 
 // === LOOP PRINCIPAL ===
 void loop() {
   testing();
+  
 
     // Solo actualizar OLED cada 200ms
   if (millis() - tiempoOLED >= intervaloOLED) {
     tiempoOLED = millis();
-   //mostrarDatosOLED();
-   actualizarDatosOLED();
+   mostrarDatosOLED();
+   //actualizarDatosOLED();
   }
   
 }
@@ -152,124 +153,70 @@ void testing() {
 }
 
 void mostrarDatosOLED() {
-  myOLED.clrScr();
+  u8x8.clear();
 
-  myOLED.print("RPM:", 0, 0);
-  myOLED.printNumI(rpm, 35, 0);
-  myOLED.print("e:", 75, 0);
-  myOLED.printNumI(error, 95, 0);
+  // Línea 1
+  u8x8.setCursor(0, 0);
+  u8x8.print("RPM:");
+  u8x8.setCursor(5, 0);
+  u8x8.print(rpm);
+  u8x8.setCursor(10, 0);
+  u8x8.print("e:");
+  u8x8.print(error);
 
-  myOLED.print("A1:", 0, 10);
-  myOLED.printNumF(app1Volt, 1, 25, 10);
-  myOLED.print("V", 55, 10);
-  myOLED.printNumI((int)(app1Volt * 100 / 5), 70, 10);
-  myOLED.print("%", 100, 10);
+  // Línea 2
+  u8x8.setCursor(0, 1);
+  u8x8.print("A1:");
+  u8x8.print(app1Volt, 1);
+  u8x8.print("V ");
+  u8x8.print((int)(app1Volt * 100 / 5));
+  u8x8.print("%");
 
-  myOLED.print("A2:", 0, 20);
-  myOLED.printNumF(app2Volt, 1, 25, 20);
-  myOLED.print("V", 55, 20);
-  myOLED.printNumI((int)(app2Volt * 100 / 5), 70, 20);
-  myOLED.print("%", 100, 20);
+  // Línea 3
+  u8x8.setCursor(0, 2);
+  u8x8.print("A2:");
+  u8x8.print(app2Volt, 1);
+  u8x8.print("V ");
+  u8x8.print((int)(app2Volt * 100 / 5));
+  u8x8.print("%");
 
-  myOLED.print("T1:", 0, 30);
-  myOLED.printNumF(tps1Volt, 1, 25, 30);
-  myOLED.print("V", 55, 30);
-  myOLED.printNumI((int)(tps1Volt * 100 / 5), 70, 30);
-  myOLED.print("%", 100, 30);
+  // Línea 4
+  u8x8.setCursor(0, 3);
+  u8x8.print("T1:");
+  u8x8.print(tps1Volt, 1);
+  u8x8.print("V ");
+  u8x8.print((int)(tps1Volt * 100 / 5));
+  u8x8.print("%");
 
-  myOLED.print("T2:", 0, 40);
-  myOLED.printNumF(tps2Volt, 1, 25, 40);
-  myOLED.print("V", 55, 40);
-  myOLED.printNumI((int)(tps2Volt * 100 / 5), 70, 40);
-  myOLED.print("%", 100, 40);
+  // Línea 5
+  u8x8.setCursor(0, 4);
+  u8x8.print("T2:");
+  u8x8.print(tps2Volt, 1);
+  u8x8.print("V ");
+  u8x8.print((int)(tps2Volt * 100 / 5));
+  u8x8.print("%");
 
-  myOLED.print("PWM:", 0, 50);
-  myOLED.printNumI(pwm, 35, 50);
-  myOLED.print("SP:", 75, 50);
-  myOLED.printNumI(setpoint, 100, 50);
+  // Línea 6
+  u8x8.setCursor(0, 5);
+  u8x8.print("PWM:");
+  u8x8.print(pwm);
+  u8x8.print(" SP:");
+  u8x8.print(setpoint);
 
+  // Línea 7 (barra horizontal)
   int puntos = (int)((float)rpm / rpmMax * anchoUtil);
-
-  for (int x = xInicio; x <= xFin; x++) {
-    myOLED.clrPixel(x, 63);
+  for (int i = 0; i < anchoUtil; i++) {
+    u8x8.setCursor(i, 7);
+    if (i < puntos)
+      u8x8.print("|");
+    else
+      u8x8.print(" ");
   }
-  for (int x = xInicio; x < xInicio + puntos; x++) {
-    myOLED.setPixel(x, 63);
-  }
-  myOLED.setPixel(0, 63);
-  myOLED.setPixel(126, 63);
-
- myOLED.update();
 }
-
 // Las demás funciones (leerEEPROM, aprender, etc.) permanecen igual sin Serial.print
 // Puedes solicitar si deseas eliminar todos los Serial por completo.
 
-void actualizarDatosOLED() {
-  myOLED.printNumI(rpm, 35, 0);
-  myOLED.printNumI(error, 95, 0);
 
-  myOLED.printNumF(app1Volt, 1, 25, 10);
-  myOLED.printNumI((int)(app1Volt * 100 / 5), 70, 10);
-
-  myOLED.printNumF(app2Volt, 1, 25, 20);
-  myOLED.printNumI((int)(app2Volt * 100 / 5), 70, 20);
-
-  myOLED.printNumF(tps1Volt, 1, 25, 30);
-  myOLED.printNumI((int)(tps1Volt * 100 / 5), 70, 30);
-
-  myOLED.printNumF(tps2Volt, 1, 25, 40);
-  myOLED.printNumI((int)(tps2Volt * 100 / 5), 70, 40);
-
-  myOLED.printNumI(pwm, 35, 50);
-  myOLED.printNumI(setpoint, 100, 50);
-
-  // Barra RPM
-  int puntos = (int)((float)rpm / rpmMax * anchoUtil);
-
-  // Limpiar barra anterior
-  for (int x = xInicio; x <= xFin; x++) {
-    myOLED.clrPixel(x, 63);
-  }
-
-  // Dibujar barra actual
-  for (int x = xInicio; x < xInicio + puntos; x++) {
-    myOLED.setPixel(x, 63);
-  }
-
-  myOLED.update();
-}
-
-void inicializarTextoOLED() {
-  myOLED.clrScr();
-
-  myOLED.print("RPM:", 0, 0);
-  myOLED.print("e:", 75, 0);
-
-  myOLED.print("A1:", 0, 10);
-  myOLED.print("V", 55, 10);
-  myOLED.print("%", 100, 10);
-
-  myOLED.print("A2:", 0, 20);
-  myOLED.print("V", 55, 20);
-  myOLED.print("%", 100, 20);
-
-  myOLED.print("T1:", 0, 30);
-  myOLED.print("V", 55, 30);
-  myOLED.print("%", 100, 30);
-
-  myOLED.print("T2:", 0, 40);
-  myOLED.print("V", 55, 40);
-  myOLED.print("%", 100, 40);
-
-  myOLED.print("PWM:", 0, 50);
-  myOLED.print("SP:", 75, 50);
-
-  myOLED.setPixel(0, 63);       // Barra delimitadora
-  myOLED.setPixel(126, 63);
-
-  myOLED.update();              // Mostrar una vez
-}
 
 
 void sensorestabien() {
