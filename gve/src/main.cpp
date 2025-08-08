@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <OLED_I2C.h>  // Asegúrate de tener esta librería instalada
+#include <Wire.h>
 
 // === DEFINICIÓN DE PINES ===
 #define TML1 9
@@ -14,21 +16,33 @@
 #define PINTEMACEITE A5
 #define PINTEMESCAPE A6
 #define PINPROGRAMER 4
+int incomingByte = 0;
 
 // === CONSTANTES ===
 const int VALPWMMIN = 25;
 const int VALPWMMAX = 140;
-const int setpointProtected = 200;
+const int setpointProtected = 2;
+const int rpmMax = 1023;  // Valor máximo de referencia para la barra RPM
+const int xInicio = 0;
+const int xFin = 126;
+const int anchoUtil = 127;
 
+// === OBJETO OLED ===
+OLED myOLED(SDA, SCL,12);
+extern uint8_t SmallFont[];
 // === VARIABLES GLOBALES ===
 int varPINIDL = 0;
 int pwm = 0;
+int rpm = 0;
+int error = 0;
 
 // TP
 int mintp1 = 0, mintp2 = 0, maxtp1 = 0, maxtp2 = 0;
+float tps1Volt = 0.0, tps2Volt = 0.0;
 
 // APP
 int minapp1 = 0, minapp2 = 0, maxapp1 = 0, maxapp2 = 0;
+float app1Volt = 0.0, app2Volt = 0.0;
 
 int dataviejaapp1 = 0, dataviejaapp2 = 0;
 int dataviejatp1 = 0, dataviejatp2 = 0;
@@ -37,7 +51,6 @@ int valtp1 = 0, valtp2 = 0;
 int valapp1 = 0, valapp2 = 0;
 int valtp1viejo = 0;
 int resultado = 0;
-int incomingByte = 0;
 int setpoint = 0;
 int diferencia = 0;
 int pwmviejo = 0;
@@ -51,18 +64,27 @@ bool tempEgrLowerLimit = false;
 bool flagtpmin = false, flagtpmax = false;
 bool flagappmin = false, flagappmax = false;
 bool flagfinreadmax = false, flagaprendetp = false;
+unsigned long tiempoOLED = 0;
+const unsigned long intervaloOLED = 200;  // Actualiza cada 200ms
 
 // === DECLARACIÓN DE FUNCIONES ===
 void setup();
 void loop();
 void aprender(), leerEeprom(), testing();
-void readtp(), readapp(), leersensor(), comunica();
+void readtp(), readapp(), leersensor();
 void readmintp(), readmaxtp(), readminapp(), readmaxapp();
 void sensorestabien(), esperarRespuesta();
+void mostrarDatosOLED();
+void actualizarDatosOLED();
+void  inicializarTextoOLED();
 
 // === SETUP ===
 void setup() {
-  Serial.begin(115200);
+    Wire.begin();
+  Wire.setClock(400000);  // Usa modo rápido I2C
+  // tu setup OLED aquí.
+  myOLED.begin();
+  myOLED.setFont(SmallFont);
   pinMode(TML1, OUTPUT);
   pinMode(TML2, OUTPUT);
 
@@ -79,11 +101,20 @@ void setup() {
   leerEeprom();
   pwm = 0;
   setpoint = 800;
+  inicializarTextoOLED();
 }
 
 // === LOOP PRINCIPAL ===
 void loop() {
   testing();
+
+    // Solo actualizar OLED cada 200ms
+  if (millis() - tiempoOLED >= intervaloOLED) {
+    tiempoOLED = millis();
+   //mostrarDatosOLED();
+   actualizarDatosOLED();
+  }
+  
 }
 
 // === FUNCIONES ===
@@ -92,8 +123,13 @@ void testing() {
   readtp();
   sensorestabien();
 
+  app1Volt = (float)valapp1 * 5.0 / 1023.0;
+  app2Volt = (float)valapp2 * 5.0 / 1023.0;
+  tps1Volt = (float)valtp1 * 5.0 / 1023.0;
+  tps2Volt = (float)valtp2 * 5.0 / 1023.0;
+
   setpoint = map(valapp2, minapp2, maxapp2, mintp1, maxtp1) + varPINIDL;
-  int error = setpoint - valtp1;
+  error = setpoint - valtp1;
   int tolerancia = 2;
   int k = 9;
 
@@ -106,8 +142,135 @@ void testing() {
       OCR1B = pwm;
       OCR1A = 0;
     }
+  } else {
+    OCR1A = 0;
+    OCR1B = 0;
   }
+
+  diferencia = error;
+  pwmviejo = pwm;
 }
+
+void mostrarDatosOLED() {
+  myOLED.clrScr();
+
+  myOLED.print("RPM:", 0, 0);
+  myOLED.printNumI(rpm, 35, 0);
+  myOLED.print("e:", 75, 0);
+  myOLED.printNumI(error, 95, 0);
+
+  myOLED.print("A1:", 0, 10);
+  myOLED.printNumF(app1Volt, 1, 25, 10);
+  myOLED.print("V", 55, 10);
+  myOLED.printNumI((int)(app1Volt * 100 / 5), 70, 10);
+  myOLED.print("%", 100, 10);
+
+  myOLED.print("A2:", 0, 20);
+  myOLED.printNumF(app2Volt, 1, 25, 20);
+  myOLED.print("V", 55, 20);
+  myOLED.printNumI((int)(app2Volt * 100 / 5), 70, 20);
+  myOLED.print("%", 100, 20);
+
+  myOLED.print("T1:", 0, 30);
+  myOLED.printNumF(tps1Volt, 1, 25, 30);
+  myOLED.print("V", 55, 30);
+  myOLED.printNumI((int)(tps1Volt * 100 / 5), 70, 30);
+  myOLED.print("%", 100, 30);
+
+  myOLED.print("T2:", 0, 40);
+  myOLED.printNumF(tps2Volt, 1, 25, 40);
+  myOLED.print("V", 55, 40);
+  myOLED.printNumI((int)(tps2Volt * 100 / 5), 70, 40);
+  myOLED.print("%", 100, 40);
+
+  myOLED.print("PWM:", 0, 50);
+  myOLED.printNumI(pwm, 35, 50);
+  myOLED.print("SP:", 75, 50);
+  myOLED.printNumI(setpoint, 100, 50);
+
+  int puntos = (int)((float)rpm / rpmMax * anchoUtil);
+
+  for (int x = xInicio; x <= xFin; x++) {
+    myOLED.clrPixel(x, 63);
+  }
+  for (int x = xInicio; x < xInicio + puntos; x++) {
+    myOLED.setPixel(x, 63);
+  }
+  myOLED.setPixel(0, 63);
+  myOLED.setPixel(126, 63);
+
+ myOLED.update();
+}
+
+// Las demás funciones (leerEEPROM, aprender, etc.) permanecen igual sin Serial.print
+// Puedes solicitar si deseas eliminar todos los Serial por completo.
+
+void actualizarDatosOLED() {
+  myOLED.printNumI(rpm, 35, 0);
+  myOLED.printNumI(error, 95, 0);
+
+  myOLED.printNumF(app1Volt, 1, 25, 10);
+  myOLED.printNumI((int)(app1Volt * 100 / 5), 70, 10);
+
+  myOLED.printNumF(app2Volt, 1, 25, 20);
+  myOLED.printNumI((int)(app2Volt * 100 / 5), 70, 20);
+
+  myOLED.printNumF(tps1Volt, 1, 25, 30);
+  myOLED.printNumI((int)(tps1Volt * 100 / 5), 70, 30);
+
+  myOLED.printNumF(tps2Volt, 1, 25, 40);
+  myOLED.printNumI((int)(tps2Volt * 100 / 5), 70, 40);
+
+  myOLED.printNumI(pwm, 35, 50);
+  myOLED.printNumI(setpoint, 100, 50);
+
+  // Barra RPM
+  int puntos = (int)((float)rpm / rpmMax * anchoUtil);
+
+  // Limpiar barra anterior
+  for (int x = xInicio; x <= xFin; x++) {
+    myOLED.clrPixel(x, 63);
+  }
+
+  // Dibujar barra actual
+  for (int x = xInicio; x < xInicio + puntos; x++) {
+    myOLED.setPixel(x, 63);
+  }
+
+  myOLED.update();
+}
+
+void inicializarTextoOLED() {
+  myOLED.clrScr();
+
+  myOLED.print("RPM:", 0, 0);
+  myOLED.print("e:", 75, 0);
+
+  myOLED.print("A1:", 0, 10);
+  myOLED.print("V", 55, 10);
+  myOLED.print("%", 100, 10);
+
+  myOLED.print("A2:", 0, 20);
+  myOLED.print("V", 55, 20);
+  myOLED.print("%", 100, 20);
+
+  myOLED.print("T1:", 0, 30);
+  myOLED.print("V", 55, 30);
+  myOLED.print("%", 100, 30);
+
+  myOLED.print("T2:", 0, 40);
+  myOLED.print("V", 55, 40);
+  myOLED.print("%", 100, 40);
+
+  myOLED.print("PWM:", 0, 50);
+  myOLED.print("SP:", 75, 50);
+
+  myOLED.setPixel(0, 63);       // Barra delimitadora
+  myOLED.setPixel(126, 63);
+
+  myOLED.update();              // Mostrar una vez
+}
+
 
 void sensorestabien() {
   if (valtp1 > maxtp1 + 150 || valtp1 < mintp1 - 150 ||
@@ -240,3 +403,5 @@ void leerEeprom() {
   maxtp1 = (EEPROM.read(address + 12) << 8) | EEPROM.read(address + 13);
   maxtp2 = (EEPROM.read(address + 14) << 8) | EEPROM.read(address + 15);
 } 
+
+
